@@ -23,7 +23,7 @@ from datetime import datetime
 computer_name = socket.gethostname() 
 
 # 定义常量类
-
+default_file_path = 'D:\\ProjectsHub\\eco_monitoring_sys_hw\\Data\\monitor_data.csv'
 
 
 # 工具函数
@@ -113,12 +113,14 @@ class CSVManager(object): # CSV 文件管理
     Attributes:
         filepath (str): CSV 文件路径
     """
+
     def __init__(self,filepath):
 
         """
         初始化 CSVManager 类，创建一个 CSV 文件并设置文件路径
         """
         self.filepath = filepath
+        self._data = None # 数据缓存
 
     def save_record_pd(self,record):
         """
@@ -175,57 +177,102 @@ class CSVManager(object): # CSV 文件管理
         self._data = df
         return self._data
     
-    def filter_by_location(self, location: str) -> pd.DataFrame:
+    def save_dataframe(self, df: pd.DataFrame, to_path=None):
         """
-        根据指定地点筛选记录并返回相关数据框
+        保存 DataFrame 到文件
+        """
+        path = to_path or self.filepath
+        df.to_csv(path, index=False)
+        print(f"数据已保存至 {path}")
+
+    def sort_and_save(self, field: str, ascending=True, to_path=None):
+        """
+        对文件中的记录排序并保存（覆盖或另存）
+        """
+        df = self.read_all_records()
+        if field not in df.columns:
+            raise ValueError(f"字段 {field} 不存在")
+        df = df.sort_values(by=field, ascending=ascending)
+        self.save_dataframe(df, to_path)
+
+    def filter_and_save(self, location=None, start_time=None, end_time=None, to_path=None):
+        """
+        筛选数据并保存
+        """
+        df = self.read_all_records()
+        if location:
+            df = df[df['地点'] == location]
+        if start_time and end_time:
+            df = df[(df['时间戳'] >= start_time) & (df['时间戳'] <= end_time)]
+        self.save_dataframe(df, to_path)
+    
+    
+
+
+class RecordViewer(object):
+    def __init__(self, manager: CSVManager):
+        self.manager = manager  
+        self.sort_field = None
+        self.sort_ascending = True
+
+    def refresh_data(self):
+        """刷新数据"""
+        self.current_df = self.manager.read_all_records(refresh=True)
+
+    def view_records(self, sort_by=None, ascending=True, start_time=None, end_time=None, location=None):
+        """
+        查看记录，支持筛选+排序组合操作
 
         arguments:
-        location (str): 需要筛选的地点
+            sort_by (str): 排序字段，可选 ['时间戳', '温度', 'pH', 'pm2.5']
+            ascending (bool): 是否升序，默认 True
+            start_time (pd.Timestamp): 筛选起始时间
+            end_time (pd.Timestamp): 筛选结束时间
+            location (str): 筛选地点
 
         return:
-        pd.DataFrame: 筛选后的数据框，包含所有地点与指定地点相同的记录
+            pd.DataFrame: 处理后的数据框
         """
-        df = self.read_all_records()
-        return df[df['地点'] == location].copy()
+        df = self.manager.read_all_records(refresh=True)
+
+        if df.empty:
+            print("当前没有可用数据。")
+            return df
+
+        # 时间范围筛选
+        if start_time and end_time:
+            df = df[(df['时间戳'] >= start_time) & (df['时间戳'] <= end_time)]
+
+        # 地点筛选
+        if location:
+            df = df[df['地点'] == location]
+
+        # 排序
+        if sort_by:
+            if sort_by not in df.columns:
+                raise ValueError(f"字段 '{sort_by}' 不存在于数据中")
+            df = df.sort_values(by=sort_by, ascending=ascending)
+
+        return df.reset_index(drop=True).copy()
     
-
-    def filter_by_date_range(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-        """
-        根据指定的日期范围过滤记录
-
-        本函数会从数据库中读取所有记录，并根据提供的开始和结束日期筛选出符合条件的记录
-        这种方法适用于日期范围内的数据筛选，便于用户获取特定时间段内的数据
-
-        arguments:
-        start (pd.Timestamp): 起始日期，表示筛选范围的开始时间
-        end (pd.Timestamp): 结束日期，表示筛选范围的结束时间
-
-        return:
-        pd.DataFrame: 返回一个数据框，包含在指定日期范围内的所有记录的副本
-        """
-        df = self.read_all_records()
-        return df[(df['时间戳'] >= start) & (df['时间戳'] <= end)].copy()
     
-    def get_sorted(self, by: str, ascending: bool = True) -> pd.DataFrame:
+    def display_records(self, df=None):
+        """显示记录"""
+        if df is None:
+            df = self.current_df
+            
+        if df.empty:
+            print("没有可显示的数据")
+            return
         
-        """
-        根据指定字段对记录进行排序
-    
-        arguments:
-        by: str - 需要根据其排序的字段名称
-        ascending: bool - 排序方向,默认为升序(True)
-    
-        ruturn:
-        pd.DataFrame - 排序后的数据框副本
-    
-        raises:
-        ValueError - 如果指定的排序字段不存在于数据框中
-        """
+        # 打印表头
+        print("\n" + " | ".join(df.columns))
+        print("-" * 60)
         
-        df = self.read_all_records()
-        if by not in df.columns:
-            raise ValueError(f"字段 '{by}' 不存在")
-        return df.sort_values(by=by, ascending=ascending).copy()
+        # 打印每一行数据
+        for _, row in df.iterrows():
+            print(" | ".join(str(val) for val in row.values))
+
 
 
 
@@ -288,33 +335,209 @@ def add_record():
     然后将这些数据保存到指定的CSV文件中
     """
     
-    manager = CSVManager("D:\\ProjectsHub\\eco_monitoring_sys_hw\\Data\\monitor_data.csv")
+    manager = CSVManager(default_file_path)
 
     record = User_inputdata()
 
     manager.save_record_pd(record)
+
+def get_date_range():
+    """获取用户输入的有效日期范围"""
+    while True:
+        start_str = input("请输入开始时间(YYYY-MM-DD HH:MM): ").strip()
+        try:
+            start = pd.Timestamp(start_str)
+            break
+        except Exception:
+            print("开始时间格式错误，请重新输入")
+
+    while True:
+        end_str = input("请输入结束时间(YYYY-MM-DD HH:MM): ").strip()
+        try:
+            end = pd.Timestamp(end_str)
+            if end >= start:
+                break
+            print("结束时间不能早于开始时间，请重新输入")
+        except Exception:
+            print("结束时间格式错误，请重新输入")
+            
+    return start, end
+def combined_filter_sort_submenu(viewer):
+    """同时进行筛选和排序"""
+    viewer.refresh_data()
+    
+    # 先进行筛选
+    print("请先设置筛选条件（可跳过）")
+    has_filter = input("是否需要筛选？(y/n): ").lower() == 'y'
+    
+    start, end, location = None, None, None
+    if has_filter:
+        print("\n请选择筛选类型：")
+        print("1. 时间筛选")
+        print("2. 地点筛选")
+        print("3. 时间和地点筛选")
+        
+        choice = input("请选择筛选类型(1-3): ")
+        if choice == '1':
+            start, end = get_date_range()
+        elif choice == '2':
+            location = input("请输入地点: ").strip()
+        elif choice == '3':
+            location = input("请输入地点: ").strip()
+            start, end = get_date_range()
+    
+    # 再进行排序
+    print("\n请选择排序设置")
+    columns = {'1': '时间戳', '2': '温度', '3': 'pH', '4': 'pm2.5'}
+    
+    print("排序字段选项：")
+    print("1. 时间戳")
+    print("2. 温度")
+    print("3. pH值") 
+    print("4. PM2.5")
+    
+    choice = input("请选择排序字段(1-4): ")
+    column = columns.get(choice)
+    
+    if not column:
+        print("无效选择")
+        return
+        
+    order = input("请选择排序方式(1:升序, 2:降序): ")
+    ascending = order != '2'
+    
+    # 执行综合操作
+    df = viewer.view_records(
+        sort_by=column,
+        ascending=ascending,
+        start_time=start,
+        end_time=end,
+        location=location
+    )
+    
+    viewer.display_records(df)
+def sort_submenu(viewer):
+    """排序子菜单"""
+    columns = {'1': '时间戳', '2': '温度', '3': 'pH', '4': 'pm2.5'}
+    
+    print("\n=== 排序字段 ===")
+    print("1. 时间戳")
+    print("2. 温度")
+    print("3. pH值")
+    print("4. PM2.5")
+    
+    choice = input("请选择排序字段(1-4): ")
+    column = columns.get(choice)
+    
+    if not column:
+        print("无效选择")
+        return
+        
+    order = input("请选择排序方式(1:升序, 2:降序): ")
+    ascending = order != '2'
+    
+    viewer.refresh_data()  # 刷新数据
+    df = viewer.view_records(sort_by=column, ascending=ascending)
+    viewer.display_records(df)
+
+def filter_submenu(viewer):
+    """筛选子菜单"""
+    while True:
+        print("\n=== 筛选数据 ===")
+        print("1. 按时间范围筛选")
+        print("2. 按地点筛选")
+        print("3. 同时按时间和地点筛选")
+        print("b. 返回上一级")
+        
+        choice = input("请选择筛选方式: ").lower()
+        
+        if choice == 'b':
+            return
+            
+        viewer.refresh_data()  # 先刷新数据
+        
+        if choice == '1':
+            start, end = get_date_range()
+            df = viewer.view_records(start_time=start, end_time=end)
+            viewer.display_records(df)
+            
+        elif choice == '2':
+            location = input("请输入要筛选的地点: ").strip()
+            df = viewer.view_records(location=location)
+            viewer.display_records(df)
+            
+        elif choice == '3':
+            location = input("请输入要筛选的地点: ").strip()
+            print("\n请输入筛选的时间范围：")
+            start, end = get_date_range()
+            df = viewer.view_records(start_time=start, end_time=end, location=location)
+            viewer.display_records(df)
+            
+        else:
+            print("无效选项，请重新输入")
+def view_record_menu():
+    """查看记录主菜单"""
+    # 创建CSVManager实例
+    manager = CSVManager("D:\\ProjectsHub\\eco_monitoring_sys_hw\\Data\\monitor_data.csv")
+    viewer = RecordViewer(manager)
+    
+    while True:
+        print("\n=== 查看记录 ===")
+        print("1. 显示所有数据")
+        print("2. 按条件筛选")
+        print("3. 按条件排序")
+        print("4. 综合筛选与排序")
+        print("b. 返回主菜单")
+        
+        choice = input("请选择操作: ").lower()
+        
+        if choice == 'b':
+            break
+        elif choice == '1':
+            viewer.refresh_data()
+            viewer.display_records()
+        elif choice == '2':
+            filter_submenu(viewer)
+        elif choice == '3':
+            sort_submenu(viewer)
+        elif choice == '4':
+            combined_filter_sort_submenu(viewer)
+        else:
+            print("无效选项，请重新输入")
+
+
     
 def main_menu():
     menu_option = {
-        '1':(),
-        '2':(),
-        '3':(),
-        '4':()
+        '1':("添加数据记录",add_record),
+        '2':("查看数据记录",view_record_menu),
+        '3':("预留位置",None),
+        '4':("预留位置",None),
+        '5':("退出程序",lambda: exit())
     }
+    
     while True:
-        for key,(desc,_) in menu_option.items():
-            print(f'{key},{desc}')
-            choice = input("请选择操作:")
+        print("\n===== 主菜单 =====")
+        for key, (desc, func) in menu_option.items():
+            print(f"{key}. {desc}")
 
-        if choice in menu_option:
-            menu_option[choice][1]()
+        choice = input("请选择操作: ").strip()
 
+        if choice not in menu_option:
+            print("无效操作输入，请重试")
+            continue
 
+        func = menu_option[choice][1]
+        if func is None:
+            print("该功能暂未实现，请选择其他选项")
         else:
-            print("无效操作输入,请重试")
+            try:
+                func()
+            except Exception as e:
+                print(f"执行过程中发生错误: {e}")
         
 
     
 
 if __name__ == "__main__":
-    add_record()
+    main_menu()
