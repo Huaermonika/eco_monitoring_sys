@@ -130,21 +130,7 @@ class CSVManager(object): # CSV 文件管理
                     writer.writerow(['ID','时间戳', '地点', '温度', 'pH', 'pm2.5', '备注','录入设备'])
                 writer.writerow(record.to_list())
 
-    def save_record_pd(self,record):
-        """
-        使用 pandas 实现记录保存到 CSV 文件
-        """
-        columns = ['时间戳', '地点', '温度', 'pH', 'pm2.5', '备注', '录入设备']
-        new_data = pd.DataFrame([record.to_list()], columns=columns)
-
-        if os.path.exists(self.filepath):
-            df = pd.read_csv(self.filepath)
-            df = pd.concat([df, new_data], ignore_index=True)
-        else:
-            df = new_data
-
-        # 保存时使用 index，并设置 index_label='ID'
-        df.to_csv(self.filepath, index=True, index_label='ID', encoding='utf-8')
+    
 
 def User_inputdata(): # 用户输入数据
     """
@@ -206,7 +192,7 @@ def add_record():
 
     record = User_inputdata()
 
-    manager.save_record_pd(record)
+    manager.save_record_csv(record)
     
 def main_menu():
     menu_option = {
