@@ -13,10 +13,11 @@ from pandas import Timestamp
 import matplotlib.patches as plt
 import numpy as np
 
-import csv
 import socket
 import os
-from datetime import datetime
+import datetime
+
+
 
 
 # 获取计算机名称
@@ -29,14 +30,31 @@ default_file_path = 'D:\\ProjectsHub\\eco_monitoring_sys_hw\\Data\\monitor_data.
 # 工具函数
 
 def to_timestamp(value) -> pd.Timestamp:
+    """
+    将字符串时间转换为 Timestamp 对象
+    """
     return pd.Timestamp(value)
 
 def now_timestamp() -> pd.Timestamp:
+    """
+    获取当前时间戳
+    """
     return pd.Timestamp.now()
 
+def get_date_input(prompt):
+    """
+    通用时间输入函数,用于解析用户输入的日期时间
+    """
+    while True:
+        date_str = input(prompt).strip()
+        try:
+            return pd.Timestamp(date_str)
+        except Exception:
+            print("时间格式错误，请重新输入 (YYYY-MM-DD HH:MM)")
 
 
-# 数据结构
+
+
 
 class MonitorRecord(object):
     """
@@ -73,7 +91,7 @@ class MonitorRecord(object):
         """
         return [
             
-            self.timestamp.strftime('%Y-%m-%d %H:%M'),
+            self.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
             self.location,
             self.temperature,
             self.pH,
@@ -97,11 +115,12 @@ class MonitorRecord(object):
         return MonitorRecord(
             
             timestamp=timestamp,
-            location=data[2],
-            temperature=float(data[3]),
-            pH=float(data[4]),
-            pm25=float(data[5]),
-            remarks=data[6],
+            location=data[1],
+            temperature=float(data[2]),
+            pH=float(data[3]),
+            pm25=float(data[4]),
+            remarks=data[5],
+            computer_name=data[6],
             record_id=None
         )
 
@@ -172,7 +191,7 @@ class CSVManager(object): # CSV 文件管理
         if '时间戳' in df.columns:
             df['时间戳'] = pd.to_datetime(df['时间戳'], errors='coerce')
 
-        df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+        df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
 
         self._data = df
         return self._data
@@ -205,6 +224,43 @@ class CSVManager(object): # CSV 文件管理
         if start_time and end_time:
             df = df[(df['时间戳'] >= start_time) & (df['时间戳'] <= end_time)]
         self.save_dataframe(df, to_path)
+
+    def reindex_records(self):
+        """
+        重新编写 CSV 文件中的 ID 为连续的数列
+        """
+        df = self.read_all_records(refresh=True)
+
+        if 'ID' not in df.columns:
+            print("没有 'ID' 字段，无法重新编号。")
+            return
+
+        # 重新编写 ID 为连续数列
+        df['ID'] = range(1, len(df) + 1)
+        self.save_dataframe(df)
+        print("ID 已重新编号。")
+
+    def modify_record_by_id(self, record_id: int, new_data: dict):
+        """
+        用新的字段值覆盖指定 ID 的整行记录
+
+        参数:
+        - record_id: 要修改的记录 ID(索引)
+        - new_data: dict 类型的新数据,key 是字段名
+        """
+        df = self.read_all_records(refresh=True)
+
+        if record_id not in df.index:
+            raise ValueError(f"未找到 ID 为 {record_id} 的记录。")
+
+        for key in new_data:
+            if key not in df.columns:
+                raise ValueError(f"字段 {key} 不存在于记录中。")
+
+        for key, value in new_data.items():
+            df.at[record_id, key] = value
+
+        self.save_dataframe(df)
     
     
 
@@ -216,7 +272,9 @@ class RecordViewer(object):
         self.sort_ascending = True
 
     def refresh_data(self):
-        """刷新数据"""
+        """
+        刷新数据
+        """
         self.current_df = self.manager.read_all_records(refresh=True)
 
     def view_records(self, sort_by=None, ascending=True, start_time=None, end_time=None, location=None):
@@ -257,7 +315,9 @@ class RecordViewer(object):
     
     
     def display_records(self, df=None):
-        """显示记录"""
+        """
+        显示记录
+        """
         if df is None:
             df = self.current_df
             
@@ -275,7 +335,6 @@ class RecordViewer(object):
 
 
 
-
 def User_inputdata(): # 用户输入数据
     """
     交互式地获取用户输入的环保监测数据
@@ -284,12 +343,11 @@ def User_inputdata(): # 用户输入数据
         MonitorRecord: 包含用户输入数据的记录对象
     """
 
-    
 
     while True:
         time_str = input("请输入时间(YYYY-MM-DD HH:MM)，留空则使用当前时间：").strip()
         if time_str == "":
-            timestamp = Timestamp.now()
+            timestamp = now_timestamp()
             break
         try:
             timestamp = Timestamp(time_str)
@@ -302,7 +360,7 @@ def User_inputdata(): # 用户输入数据
     
     while True:
         try:
-            temperature_celsius = float(input("请输入温度(℃)："))
+            temperature_celsius = float(input("请输入温度(℃):"))
             break
         except ValueError:
             print("温度必须是数字，请重新输入")
@@ -327,6 +385,8 @@ def User_inputdata(): # 用户输入数据
                          computer_name=computer_name)
 
 
+
+#用户操作UI与功能实现
 def add_record():
     """
     添加记录到CSV文件中
@@ -334,163 +394,211 @@ def add_record():
     本函数通过实例化CSVManager类来管理CSV文件,并获取用户输入的数据,
     然后将这些数据保存到指定的CSV文件中
     """
-    
     manager = CSVManager(default_file_path)
-
     record = User_inputdata()
-
     manager.save_record_pd(record)
 
-def get_date_range():
-    """获取用户输入的有效日期范围"""
-    while True:
-        start_str = input("请输入开始时间(YYYY-MM-DD HH:MM): ").strip()
-        try:
-            start = pd.Timestamp(start_str)
-            break
-        except Exception:
-            print("开始时间格式错误，请重新输入")
 
+def get_date_range():
+    """
+    获取用户输入的起始与结束时间
+    """
+    start = get_date_input("请输入开始时间(YYYY-MM-DD HH:MM): ")
     while True:
-        end_str = input("请输入结束时间(YYYY-MM-DD HH:MM): ").strip()
-        try:
-            end = pd.Timestamp(end_str)
-            if end >= start:
-                break
-            print("结束时间不能早于开始时间，请重新输入")
-        except Exception:
-            print("结束时间格式错误，请重新输入")
-            
-    return start, end
-def combined_filter_sort_submenu(viewer):
-    """同时进行筛选和排序"""
-    viewer.refresh_data()
+        end = get_date_input("请输入结束时间(YYYY-MM-DD HH:MM): ")
+        if end >= start:
+            return start, end
+        print("结束时间不能早于开始时间,请重新输入")
+
+def get_sort_settings():
+    """
+    获取排序字段和排序顺序(升序/降序)
+    """
+    columns = {'1': '时间戳', '2': '温度', '3': 'pH', '4': 'pm2.5'}
+    print("\n=== 排序字段选项 ===")
+    for k, v in columns.items():
+        print(f"{k}. {v}")
+        
+    choice = input("请选择排序字段(1-4): ")
+    column = columns.get(choice)
+    if not column:
+        print("无效选择")
+        return None, None
+
+    order = input("请选择排序方式(1:升序, 2:降序): ")
+    ascending = (order != '2')
+    return column, ascending
+
+def filter_data(viewer, filter_type):
+    """
+    根据用户选择的筛选类型执行筛选操作
     
-    # 先进行筛选
-    print("请先设置筛选条件（可跳过）")
-    has_filter = input("是否需要筛选？(y/n): ").lower() == 'y'
-    
+    arguments:
+        viewer: 记录查看器对象
+        filter_type: str,筛选类型(1-时间,2-地点,3-时间和地点)
+    """
     start, end, location = None, None, None
-    if has_filter:
-        print("\n请选择筛选类型：")
-        print("1. 时间筛选")
-        print("2. 地点筛选")
-        print("3. 时间和地点筛选")
-        
-        choice = input("请选择筛选类型(1-3): ")
-        if choice == '1':
-            start, end = get_date_range()
-        elif choice == '2':
-            location = input("请输入地点: ").strip()
-        elif choice == '3':
-            location = input("请输入地点: ").strip()
-            start, end = get_date_range()
-    
-    # 再进行排序
-    print("\n请选择排序设置")
-    columns = {'1': '时间戳', '2': '温度', '3': 'pH', '4': 'pm2.5'}
-    
-    print("排序字段选项：")
-    print("1. 时间戳")
-    print("2. 温度")
-    print("3. pH值") 
-    print("4. PM2.5")
-    
-    choice = input("请选择排序字段(1-4): ")
-    column = columns.get(choice)
-    
-    if not column:
-        print("无效选择")
-        return
-        
-    order = input("请选择排序方式(1:升序, 2:降序): ")
-    ascending = order != '2'
-    
-    # 执行综合操作
-    df = viewer.view_records(
-        sort_by=column,
-        ascending=ascending,
-        start_time=start,
-        end_time=end,
-        location=location
-    )
-    
-    viewer.display_records(df)
-def sort_submenu(viewer):
-    """排序子菜单"""
-    columns = {'1': '时间戳', '2': '温度', '3': 'pH', '4': 'pm2.5'}
-    
-    print("\n=== 排序字段 ===")
-    print("1. 时间戳")
-    print("2. 温度")
-    print("3. pH值")
-    print("4. PM2.5")
-    
-    choice = input("请选择排序字段(1-4): ")
-    column = columns.get(choice)
-    
-    if not column:
-        print("无效选择")
-        return
-        
-    order = input("请选择排序方式(1:升序, 2:降序): ")
-    ascending = order != '2'
-    
-    viewer.refresh_data()  # 刷新数据
-    df = viewer.view_records(sort_by=column, ascending=ascending)
+
+    if filter_type == '1':
+        start, end = get_date_range()
+    elif filter_type == '2':
+        location = input("请输入要筛选的地点: ").strip()
+    elif filter_type == '3':
+        location = input("请输入要筛选的地点: ").strip()
+        print("\n请输入筛选的时间范围: ")
+        start, end = get_date_range()
+
+    viewer.refresh_data()
+    df = viewer.view_records(start_time=start, end_time=end, location=location)
     viewer.display_records(df)
 
 def filter_submenu(viewer):
-    """筛选子菜单"""
+    """
+    筛选子菜单,提供三种筛选方式
+    """
     while True:
         print("\n=== 筛选数据 ===")
         print("1. 按时间范围筛选")
         print("2. 按地点筛选")
-        print("3. 同时按时间和地点筛选")
+        print("3. 时间和地点同时筛选")
         print("b. 返回上一级")
         
         choice = input("请选择筛选方式: ").lower()
-        
         if choice == 'b':
-            return
-            
-        viewer.refresh_data()  # 先刷新数据
-        
-        if choice == '1':
-            start, end = get_date_range()
-            df = viewer.view_records(start_time=start, end_time=end)
-            viewer.display_records(df)
-            
-        elif choice == '2':
-            location = input("请输入要筛选的地点: ").strip()
-            df = viewer.view_records(location=location)
-            viewer.display_records(df)
-            
-        elif choice == '3':
-            location = input("请输入要筛选的地点: ").strip()
-            print("\n请输入筛选的时间范围：")
-            start, end = get_date_range()
-            df = viewer.view_records(start_time=start, end_time=end, location=location)
-            viewer.display_records(df)
-            
+            break
+        elif choice in ['1', '2', '3']:
+            filter_data(viewer, choice)
         else:
             print("无效选项，请重新输入")
+
+def sort_submenu(viewer):
+    """
+    排序子菜单,用户选择排序字段和顺序
+    """
+    column, ascending = get_sort_settings()
+    if column:
+        viewer.refresh_data()
+        df = viewer.view_records(sort_by=column, ascending=ascending)
+        viewer.display_records(df)
+
+def combined_filter_sort_submenu(viewer):
+    """
+    组合筛选与排序子菜单,先筛选再排序
+    """
+    viewer.refresh_data()
+    print("\n请设置筛选条件(可跳过)")
+    use_filter = input("是否需要筛选？(y/n): ").lower() == 'y'
+
+    start, end, location = None, None, None
+    if use_filter:
+        print("\n1. 时间筛选\n2. 地点筛选\n3. 时间+地点筛选")
+        choice = input("请选择筛选类型(1-3): ")
+        if choice in ['1', '2', '3']:
+            if choice in ['1', '3']:
+                start, end = get_date_range()
+            if choice in ['2', '3']:
+                location = input("请输入地点: ").strip()
+        else:
+            print("无效筛选类型")
+            return
+
+    column, ascending = get_sort_settings()
+    if column:
+        df = viewer.view_records(
+            sort_by=column,
+            ascending=ascending,
+            start_time=start,
+            end_time=end,
+            location=location
+        )
+        viewer.display_records(df)
+
+def search_by_keyword(viewer):
+    """
+    按关键词模糊搜索数据（在所有字段中）
+    """
+    keyword = input("请输入搜索关键词: ").strip().lower()
+    if not keyword:
+        print("关键词不能为空")
+        return
+
+    viewer.refresh_data()
+    df = viewer.current_df
+
+    mask = df.apply(lambda row: row.astype(str).str.lower().str.contains(keyword).any(), axis=1)
+    result_df = df[mask]
+
+    if result_df.empty:
+        print("未找到匹配的数据")
+    else:
+        print(f"\n找到 {len(result_df)} 条匹配结果：")
+        viewer.display_records(result_df)
+
+def modify_full_record(manager: CSVManager):
+    df = manager.read_all_records(refresh=True)
+    if df.empty:
+        print("无记录可修改。")
+        return
+
+    try:
+        record_id = int(input("请输入要修改的记录 ID: ").strip())
+    except ValueError:
+        print("ID 输入错误！")
+        return
+
+    if record_id not in df.index:
+        print("找不到该 ID 的记录。")
+        return
+
+    print(f"\n当前记录:\n{df.loc[record_id]}\n")
+
+    new_data = {}
+    for col in df.columns:
+        if col == 'ID':
+            continue  # ID 不允许改
+        current_value = df.at[record_id, col]
+        user_input = input(f"输入新的 {col}（留空则保留当前值：{current_value}）：").strip()
+        if user_input == "":
+            new_data[col] = current_value
+        else:
+            # 类型转换
+            if col in ['温度', 'pH', 'pm2.5']:
+                try:
+                    user_input = float(user_input)
+                except ValueError:
+                    print(f"{col} 不是合法数字，已保留原值。")
+                    user_input = current_value
+            elif col == '时间戳':
+                try:
+                    user_input = pd.Timestamp(user_input)
+                except Exception:
+                    print("时间戳格式错误，已保留原值。")
+                    user_input = current_value
+            new_data[col] = user_input
+
+    try:
+        manager.modify_record_by_id(record_id, new_data)
+        print("记录已成功更新。")
+    except Exception as e:
+        print(f"修改失败：{e}")
+
 def view_record_menu():
-    """查看记录主菜单"""
-    # 创建CSVManager实例
-    manager = CSVManager("D:\\ProjectsHub\\eco_monitoring_sys_hw\\Data\\monitor_data.csv")
+    """
+    查看记录的主菜单,包含显示、筛选、排序等功能
+    """
+    manager = CSVManager(default_file_path)
     viewer = RecordViewer(manager)
-    
+
     while True:
-        print("\n=== 查看记录 ===")
+        print("\n=== 查看记录菜单 ===")
         print("1. 显示所有数据")
-        print("2. 按条件筛选")
-        print("3. 按条件排序")
+        print("2. 筛选数据")
+        print("3. 排序数据")
         print("4. 综合筛选与排序")
+        print("5.关键词模糊检索")
         print("b. 返回主菜单")
-        
+
         choice = input("请选择操作: ").lower()
-        
         if choice == 'b':
             break
         elif choice == '1':
@@ -502,16 +610,77 @@ def view_record_menu():
             sort_submenu(viewer)
         elif choice == '4':
             combined_filter_sort_submenu(viewer)
+        elif choice == '5':
+            search_by_keyword(viewer)
+        else:
+            print("无效选项，请重新输入")
+
+def delete_by_index(manager: CSVManager):
+    df = manager.read_all_records(refresh=True)
+
+    if df.empty:
+        print("数据为空，无法删除。")
+        return
+
+    print("\n当前数据如下:")
+    print(df)
+
+    try:
+        index = int(input("请输入要删除的索引 ID:").strip())
+        if index not in df.index:
+            print("无效索引，请检查后再试。")
+            return
+    except ValueError:
+        print("输入不是有效的数字索引。")
+        return
+
+    print("\n你将要删除以下记录:")
+    print(df.loc[[index]])
+
+    confirm = input("确认删除？(y/n): ").lower()
+    if confirm == 'y':
+        df = df.drop(index)
+        manager.save_dataframe(df)
+        print("删除成功。")
+    else:
+        print("操作已取消。")
+
+def manage_records_menu():
+
+    manager = CSVManager(default_file_path)
+    
+
+    while True:
+        print("\n=== 查看记录菜单 ===")
+        print("1. 按索引删除数据")
+        print("2. ")
+        print("3. ")
+        print("4. ")
+        print("b. 返回主菜单")
+
+        choice = input("请选择操作: ").lower()
+        if choice == 'b':
+            break
+        elif choice == '1':
+            delete_by_index(manager)
+            
+        elif choice == '2':
+            pass
+        elif choice == '3':
+            pass
+        elif choice == '4':
+            pass
         else:
             print("无效选项，请重新输入")
 
 
-    
+
+#主选单
 def main_menu():
     menu_option = {
         '1':("添加数据记录",add_record),
         '2':("查看数据记录",view_record_menu),
-        '3':("预留位置",None),
+        '3':("进行数据操作",manage_records_menu),
         '4':("预留位置",None),
         '5':("退出程序",lambda: exit())
     }
