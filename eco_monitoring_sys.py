@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Project Name: eco_monitoring_sys(环保监测数据记录与分析系统)
+Project Name: eco_monitoring_sys(环境监测数据记录与分析系统)
 File Description: 负责录入、存储环保监测数据，生成 CSV 文件
 Date: 2025-06-15
 Author: 杨澍
@@ -169,7 +169,7 @@ class CSVManager(object): # CSV 文件管理
         读取所有记录并返回一个DataFrame
 
         如果已经加载了数据且不需要刷新，则直接返回缓存的数据副本
-        如果数据文件不存在,则创建并返回一个空的DataFrame。
+        如果数据文件不存在,则创建并返回一个空的DataFrame
         否则,读取CSV文件中的数据,转换时间戳列的数据类型,并移除所有字符串类型的前后空格。
 
         Attributes:
@@ -206,7 +206,7 @@ class CSVManager(object): # CSV 文件管理
 
     def sort_and_save(self, field: str, ascending=True, to_path=None):
         """
-        对文件中的记录排序并保存（覆盖或另存）
+        对文件中的记录排序并保存(覆盖或另存)
         """
         df = self.read_all_records()
         if field not in df.columns:
@@ -232,7 +232,7 @@ class CSVManager(object): # CSV 文件管理
         df = self.read_all_records(refresh=True)
 
         if 'ID' not in df.columns:
-            print("没有 'ID' 字段，无法重新编号。")
+            print("没有 'ID' 字段，无法重新编号")
             return
 
         # 重新编写 ID 为连续数列
@@ -251,16 +251,29 @@ class CSVManager(object): # CSV 文件管理
         df = self.read_all_records(refresh=True)
 
         if record_id not in df.index:
-            raise ValueError(f"未找到 ID 为 {record_id} 的记录。")
+            raise ValueError(f"未找到 ID 为 {record_id} 的记录")
 
         for key in new_data:
             if key not in df.columns:
-                raise ValueError(f"字段 {key} 不存在于记录中。")
+                raise ValueError(f"字段 {key} 不存在于记录中")
 
         for key, value in new_data.items():
             df.at[record_id, key] = value
 
         self.save_dataframe(df)
+
+    def clear_all_records(self):
+        """
+        清空 CSV 文件中的所有数据（保留列结构）
+        """
+        confirm = input("确定要清空所有数据吗?该操作不可恢复!(输入 yes 确认): ").strip().lower()
+        if confirm != 'yes':
+            print("操作已取消。")
+            return
+        columns = ['ID', '时间戳', '地点', '温度', 'pH', 'pm2.5', '备注', '录入设备']
+        df = pd.DataFrame(columns=columns)
+        self.save_dataframe(df)
+        print("所有记录已清空。")
     
     
 
@@ -294,7 +307,7 @@ class RecordViewer(object):
         df = self.manager.read_all_records(refresh=True)
 
         if df.empty:
-            print("当前没有可用数据。")
+            print("当前没有可用数据")
             return df
 
         # 时间范围筛选
@@ -332,6 +345,9 @@ class RecordViewer(object):
         # 打印每一行数据
         for _, row in df.iterrows():
             print(" | ".join(str(val) for val in row.values))
+
+    
+        
 
 
 
@@ -429,7 +445,7 @@ def get_sort_settings():
     ascending = (order != '2')
     return column, ascending
 
-def filter_data(viewer, filter_type):
+def filter_data(viewer: RecordViewer, filter_type):
     """
     根据用户选择的筛选类型执行筛选操作
     
@@ -456,6 +472,7 @@ def filter_submenu(viewer):
     """
     筛选子菜单,提供三种筛选方式
     """
+    
     while True:
         print("\n=== 筛选数据 ===")
         print("1. 按时间范围筛选")
@@ -471,7 +488,7 @@ def filter_submenu(viewer):
         else:
             print("无效选项，请重新输入")
 
-def sort_submenu(viewer):
+def sort_submenu(viewer: RecordViewer):
     """
     排序子菜单,用户选择排序字段和顺序
     """
@@ -481,7 +498,7 @@ def sort_submenu(viewer):
         df = viewer.view_records(sort_by=column, ascending=ascending)
         viewer.display_records(df)
 
-def combined_filter_sort_submenu(viewer):
+def combined_filter_sort_submenu(viewer: RecordViewer):
     """
     组合筛选与排序子菜单,先筛选再排序
     """
@@ -513,7 +530,7 @@ def combined_filter_sort_submenu(viewer):
         )
         viewer.display_records(df)
 
-def search_by_keyword(viewer):
+def search_by_keyword(viewer: RecordViewer):
     """
     按关键词模糊搜索数据（在所有字段中）
     """
@@ -534,7 +551,7 @@ def search_by_keyword(viewer):
         print(f"\n找到 {len(result_df)} 条匹配结果：")
         viewer.display_records(result_df)
 
-def modify_full_record(manager: CSVManager):
+def modify_partial_record(manager: CSVManager):
     df = manager.read_all_records(refresh=True)
     if df.empty:
         print("无记录可修改。")
@@ -557,7 +574,7 @@ def modify_full_record(manager: CSVManager):
         if col == 'ID':
             continue  # ID 不允许改
         current_value = df.at[record_id, col]
-        user_input = input(f"输入新的 {col}（留空则保留当前值：{current_value}）：").strip()
+        user_input = input(f"输入新的 {col}(留空则保留当前值：{current_value}):").strip()
         if user_input == "":
             new_data[col] = current_value
         else:
@@ -646,32 +663,36 @@ def delete_by_index(manager: CSVManager):
         print("操作已取消。")
 
 def manage_records_menu():
-
     manager = CSVManager(default_file_path)
-    
+    viewer = RecordViewer(manager)
 
     while True:
-        print("\n=== 查看记录菜单 ===")
+        print("\n======  数据记录管理子菜单 ======")
         print("1. 按索引删除数据")
-        print("2. ")
-        print("3. ")
-        print("4. ")
+        print("2. 重新编写 ID(顺序重排)")
+        print("3. 覆盖保存到 CSV 文件")
+        print("4. 修改部分字段（局部修改）")
+        print("5. 清空全部记录 ")
         print("b. 返回主菜单")
+        print("===================================")
+        choice = input("请输入操作编号：").strip()
 
-        choice = input("请选择操作: ").lower()
-        if choice == 'b':
-            break
-        elif choice == '1':
+        if choice == "1":
             delete_by_index(manager)
-            
-        elif choice == '2':
-            pass
-        elif choice == '3':
-            pass
-        elif choice == '4':
-            pass
+        elif choice == "2":
+            manager.reindex_records()
+        elif choice == "3":
+            df = manager.read_all_records()
+            manager.save_dataframe(df)
+        elif choice == "4":
+            modify_partial_record(manager)
+        elif choice == "5":
+            manager.clear_all_records()
+        elif choice.lower() == "b":
+            print("返回主菜单...")
+            break
         else:
-            print("无效选项，请重新输入")
+            print("无效输入，请重试。")
 
 
 
